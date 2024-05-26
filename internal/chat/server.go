@@ -4,20 +4,23 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/lucas-clemente/quic-go"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/quic-go/quic-go"
 )
 
-type server struct {
-	listener quic.Listener
+type Server struct {
+	listener *quic.Listener
 	clients  map[string]quic.Connection
 	messages chan Message
 	mutex    sync.Mutex
 }
 
-func NewServer() (*server, error) {
+const serverBufferSize = 16
+
+func NewServer() (*Server, error) {
 	tlsConf, err := generateTLSConfig()
 	if err != nil {
 		return nil, err
@@ -30,23 +33,24 @@ func NewServer() (*server, error) {
 		return nil, err
 	}
 
-	return &server{
+	return &Server{
 		listener: listener,
 		clients:  map[string]quic.Connection{},
-		messages: make(chan Message),
+		messages: make(chan Message, serverBufferSize),
 	}, nil
 }
 
-func (s *server) Close() error {
+func (s *Server) Close() error {
 	close(s.messages)
 	return s.listener.Close()
 }
 
-func (s *server) Broadcast(ctx context.Context) {
+func (s *Server) Broadcast(ctx context.Context) {
 	for {
 		select {
 		case message := <-s.messages:
 			s.mutex.Lock()
+			// todo: deliver to specific client
 			for addr, client := range s.clients {
 				go s.sendMessage(client, addr, message)
 			}
@@ -57,7 +61,7 @@ func (s *server) Broadcast(ctx context.Context) {
 	}
 }
 
-func (s *server) Accept(ctx context.Context) {
+func (s *Server) Accept(ctx context.Context) {
 	for {
 		conn, err := s.listener.Accept(ctx)
 		if err != nil {
@@ -69,7 +73,7 @@ func (s *server) Accept(ctx context.Context) {
 	}
 }
 
-func (s *server) handleConn(ctx context.Context, conn quic.Connection) {
+func (s *Server) handleConn(ctx context.Context, conn quic.Connection) {
 	defer func() { _ = conn.CloseWithError(serverError, "failed to handle connection") }()
 
 	s.mutex.Lock()
@@ -89,7 +93,7 @@ func (s *server) handleConn(ctx context.Context, conn quic.Connection) {
 	}
 }
 
-func (s *server) removeClient(addr string) {
+func (s *Server) removeClient(addr string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -99,7 +103,7 @@ func (s *server) removeClient(addr string) {
 	}
 }
 
-func (s *server) readMessage(stream quic.Stream) {
+func (s *Server) readMessage(stream quic.Stream) {
 	defer func() { _ = stream.Close() }()
 
 	var message Message
@@ -111,7 +115,7 @@ func (s *server) readMessage(stream quic.Stream) {
 	s.messages <- message
 }
 
-func (s *server) sendMessage(client quic.Connection, addr string, message Message) {
+func (s *Server) sendMessage(client quic.Connection, addr string, message Message) {
 	stream, err := client.OpenStream()
 	if err != nil {
 		log.Printf("[ERROR] failed to connect to client %s: %v\n", addr, err)

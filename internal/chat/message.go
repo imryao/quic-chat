@@ -1,19 +1,23 @@
 package chat
 
 import (
-	"encoding/gob"
+	"encoding/json"
 	"io"
 )
 
 type Message struct {
-	Nickname string
-	Text     string
+	Version string `json:"version"`
+	Kind    string `json:"kind"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	ID      string `json:"id"`
+	Data    string `json:"data"`
 }
 
 func (m *Message) Read(r io.Reader) error {
-	return gob.NewDecoder(r).Decode(m)
+	return json.NewDecoder(r).Decode(m)
 }
 
 func (m *Message) Write(w io.Writer) error {
-	return gob.NewEncoder(w).Encode(m)
+	return json.NewEncoder(w).Encode(m)
 }

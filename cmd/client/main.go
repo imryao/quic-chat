@@ -5,9 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/timiskhakov/quic-chat/internal/chat"
+	"log"
 	"os"
+
+	"quic-chat/internal/chat"
 )
 
 func main() {
@@ -26,7 +27,7 @@ func run() error {
 		return errors.New("nickname is empty")
 	}
 
-	client, err := chat.NewClient(*addr, *nickname)
+	client, err := chat.NewClient(context.Background(), *addr, *nickname)
 	if err != nil {
 		return err
 	}
@@ -36,10 +37,25 @@ func run() error {
 
 	messages, errs := client.Receive(ctx)
 
-	a := createApp(client.Send, messages, errs)
-	if err := tea.NewProgram(a).Start(); err != nil {
-		return err
-	}
+	go func() {
+		for {
+			select {
+			case msg, ok := <-messages:
+				if !ok {
+					return
+				}
+				log.Println("Received message:", msg.From, msg.Data)
+			case err, ok := <-errs:
+				if !ok {
+					return
+				}
+				log.Println("Error receiving message:", err)
+			}
+		}
+	}()
+
+	log.Println("client started")
+	select {}
 
 	return nil
 }

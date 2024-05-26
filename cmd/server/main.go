@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/timiskhakov/quic-chat/internal/chat"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"quic-chat/internal/chat"
 )
 
 func main() {
