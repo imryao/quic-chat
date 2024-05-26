@@ -30,6 +30,7 @@ func run() error {
 
 	go server.Accept(ctx)
 	go server.Broadcast(ctx)
+	go server.Serve()
 
 	log.Println("server started")
 

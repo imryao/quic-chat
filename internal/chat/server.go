@@ -3,8 +3,10 @@ package chat
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -16,6 +18,8 @@ type Server struct {
 	clients  map[string]quic.Connection
 	messages chan Message
 	mutex    sync.Mutex
+
+	httpClient *http.Client
 }
 
 const serverBufferSize = 16
@@ -26,7 +30,7 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 
-	listener, err := quic.ListenAddr(fmt.Sprintf(":%d", port), tlsConf, &quic.Config{
+	listener, err := quic.ListenAddr(fmt.Sprintf(":%d", quicPort), tlsConf, &quic.Config{
 		KeepAlivePeriod: 10 * time.Second,
 	})
 	if err != nil {
@@ -139,4 +143,28 @@ func generateTLSConfig() (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 		NextProtos:   []string{protocol},
 	}, nil
+}
+
+// Serve handles tasks sent via HTTP
+func (s *Server) Serve() {
+	http.HandleFunc("/v1/tasks", func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var msg Message
+		err := json.NewDecoder(r.Body).Decode(&msg)
+		if err != nil {
+			log.Println("[ERROR] failed to decode message")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// todo: msg validation
+
+		s.messages <- msg
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	err := http.ListenAndServe(fmt.Sprintf(":%d", httpPort), nil)
+	if err != nil {
+		log.Printf("[ERROR] failed to start HTTP server: %v\n", err)
+	}
 }

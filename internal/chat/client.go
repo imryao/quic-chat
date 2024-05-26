@@ -16,7 +16,7 @@ type Client struct {
 const clientBufferSize = 16
 
 func NewClient(ctx context.Context, addr, id string) (*Client, error) {
-	conn, err := quic.DialAddr(ctx, fmt.Sprintf("%s:%d", addr, port), &tls.Config{
+	conn, err := quic.DialAddr(ctx, fmt.Sprintf("%s:%d", addr, quicPort), &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{protocol},
 	}, nil)

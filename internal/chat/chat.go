@@ -2,6 +2,7 @@ package chat
 
 const (
 	protocol    = "simpleproto"
-	port        = 4242
+	quicPort    = 4242
+	httpPort    = 9080
 	serverError = iota
 )
