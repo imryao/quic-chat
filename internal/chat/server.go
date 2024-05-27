@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -36,7 +35,7 @@ type Server struct {
 	messages chan Message
 }
 
-func NewServer(serverName string, quicPort int, httpPort int, bufferSize int, certFile string, keyFile string) (*Server, error) {
+func NewServer(serverName string, quicPort, httpPort, bufferSize int, certFile, keyFile string) (*Server, error) {
 	tlsConf, err := generateTLSConfig(certFile, keyFile)
 	if err != nil {
 		return nil, err
@@ -57,9 +56,8 @@ func NewServer(serverName string, quicPort int, httpPort int, bufferSize int, ce
 	mux.HandleFunc("/v1/tasks", func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		var msg Message
-		err = json.NewDecoder(r.Body).Decode(&msg)
+		err = msg.Read(r.Body)
 		if err != nil {
-			log.Warn().Err(err).Msg("json.Unmarshal error")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -193,36 +191,40 @@ func (s *Server) readMessage(stream quic.Stream, addr string) {
 		return
 	}
 
-	// todo: add registry task to avoid read lock every time
-	// read lock every time
-	s.addrsMu.RLock()
-	_, ok := s.addrs[message.From]
-	s.addrsMu.RUnlock()
-	if !ok {
-		// write lock only once
-		s.addrsMu.Lock()
-		// double-check to avoid race condition
-		if _, ok = s.addrs[message.From]; !ok {
-			s.addrs[message.From] = addr
+	// todo: optimize client registration mark
+	if message.Kind == "ClientRegistration" {
+		// read lock every time
+		s.addrsMu.RLock()
+		_, ok := s.addrs[message.fromClient]
+		s.addrsMu.RUnlock()
+		if !ok {
+			// write lock only once
+			s.addrsMu.Lock()
+			// double-check to avoid race condition
+			if _, ok = s.addrs[message.fromClient]; !ok {
+				s.addrs[message.fromClient] = addr
+			}
+			s.addrsMu.Unlock()
 		}
-		s.addrsMu.Unlock()
-	}
 
-	// read lock every time
-	s.namesMu.RLock()
-	_, ok = s.names[addr]
-	s.namesMu.RUnlock()
-	if !ok {
-		// write lock only once
-		s.namesMu.Lock()
-		// double-check to avoid race condition
-		if _, ok = s.names[addr]; !ok {
-			s.names[addr] = message.From
+		// read lock every time
+		s.namesMu.RLock()
+		_, ok = s.names[addr]
+		s.namesMu.RUnlock()
+		if !ok {
+			// write lock only once
+			s.namesMu.Lock()
+			// double-check to avoid race condition
+			if _, ok = s.names[addr]; !ok {
+				s.names[addr] = message.fromClient
+			}
+			s.namesMu.Unlock()
 		}
-		s.namesMu.Unlock()
-	}
 
-	s.messages <- message
+		log.Info().Str("conn_ip", addr).Str("client_name", message.From).Msg("client registered")
+	} else {
+		s.messages <- message
+	}
 }
 
 func (s *Server) sendMessage(conn quic.Connection, message *Message) {

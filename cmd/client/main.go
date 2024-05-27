@@ -4,30 +4,35 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
-	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"quic-chat/internal/chat"
+	"quic-chat/internal/logging"
+
+	"github.com/rs/zerolog/log"
 )
 
 func main() {
+	_ = logging.Init()
 	if err := run(); err != nil {
-		fmt.Printf("%v\n", err)
+		log.Warn().Err(err).Msg("run error")
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	nickname := flag.String("n", "", "nickname")
-	addr := flag.String("s", "localhost", "server")
+	clientName := flag.String("n", "", "client name")
+	serverAddr := flag.String("s", "127.0.0.1:4242", "server address")
+	bufferSize := flag.Int("b", 16, "message buffer size")
 	flag.Parse()
 
-	if *nickname == "" {
-		return errors.New("nickname is empty")
+	if *clientName == "" {
+		return errors.New("client name is empty")
 	}
 
-	client, err := chat.NewClient(context.Background(), *addr, *nickname)
+	client, err := chat.NewClient(context.Background(), *clientName, *serverAddr, *bufferSize)
 	if err != nil {
 		return err
 	}
@@ -37,25 +42,25 @@ func run() error {
 
 	messages, errs := client.Receive(ctx)
 
+	// todo
 	go func() {
 		for {
 			select {
-			case msg, ok := <-messages:
-				if !ok {
-					return
-				}
-				log.Println("Received message:", msg.From, msg.Data)
-			case err, ok := <-errs:
-				if !ok {
-					return
-				}
-				log.Println("Error receiving message:", err)
+			case msg := <-messages:
+				log.Info().Str("from", msg.From).Str("data", msg.Data).Msg("message received")
+			case err = <-errs:
+				log.Warn().Err(err).Msg("error received")
 			}
 		}
 	}()
 
-	log.Println("client started")
-	select {}
+	log.Info().Str("client_name", *clientName).Str("server_addr", *serverAddr).Int("buffer_size", *bufferSize).Msg("client started")
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	<-sigs
+
+	log.Info().Msg("client shutting down gracefully")
 
 	return nil
 }

@@ -6,41 +6,57 @@ import (
 	"fmt"
 
 	"github.com/quic-go/quic-go"
+	"github.com/rs/zerolog/log"
 )
 
 type Client struct {
-	id   string
-	conn quic.Connection
+	// clientName is the name of the client which can be identified by its server
+	clientName string
+	// conn is the connection to the server
+	conn       quic.Connection
+	bufferSize int
 }
 
-const clientBufferSize = 16
-
-func NewClient(ctx context.Context, addr, id string) (*Client, error) {
-	conn, err := quic.DialAddr(ctx, fmt.Sprintf("%s:%d", addr, quicPort), &tls.Config{
+func NewClient(ctx context.Context, clientName, serverAddr string, bufferSize int) (*Client, error) {
+	conn, err := quic.DialAddr(ctx, serverAddr, &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{protocol},
 	}, nil)
 	if err != nil {
+		log.Warn().Err(err).Msg("quic.DialAddr error")
 		return nil, err
 	}
 
-	return &Client{id: id, conn: conn}, nil
+	c := &Client{
+		clientName: clientName,
+		conn:       conn,
+		bufferSize: bufferSize,
+	}
+
+	message := Message{
+		Version: "raat.cs.ac.cn/v1alpha1",
+		Kind:    "ClientRegistration",
+		From:    fmt.Sprintf("%s@%s", c.clientName, serverAddr),
+		To:      fmt.Sprintf("SERVER@%s", serverAddr),
+	}
+	_ = c.Send(&message)
+
+	return c, nil
 }
 
-func (c *Client) Send(text string) error {
+func (c *Client) Send(message *Message) error {
 	stream, err := c.conn.OpenStream()
 	if err != nil {
+		log.Warn().Err(err).Msg("quic.OpenStream error")
 		return err
 	}
 	defer func() { _ = stream.Close() }()
-
-	message := Message{From: c.id, Data: text}
 
 	return message.Write(stream)
 }
 
 func (c *Client) Receive(ctx context.Context) (<-chan Message, <-chan error) {
-	messages, errs := make(chan Message, clientBufferSize), make(chan error, clientBufferSize)
+	messages, errs := make(chan Message, c.bufferSize), make(chan error, c.bufferSize)
 	go func() {
 		defer close(messages)
 		defer close(errs)

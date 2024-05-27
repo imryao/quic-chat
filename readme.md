@@ -14,7 +14,7 @@ openssl req -new -x509 -key server.key -out server.crt -days 3650
 2. Run the server:
 
 ```shell
-go run ./cmd/server
+go run ./cmd/server -n 127.0.0.1:9080 -q 4242 -h 9080 -b 16 -c server.crt -k server.key
 ```
 
 ## Running Client
@@ -22,5 +22,7 @@ go run ./cmd/server
 Run the client:
 
 ```shell
-go run ./cmd/client [-s <ServerAddress>] -n <Nickname>
+go run ./cmd/client -n mryao-client-1 -s 127.0.0.1:4242 -b 16
+go run ./cmd/client -n mryao-client-2 -s 127.0.0.1:4242 -b 16
+go run ./cmd/client -n mryao-client-3 -s 127.0.0.1:4242 -b 16
 ```
