@@ -2,24 +2,39 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
+	"errors"
+	"flag"
+	"github.com/rs/zerolog/log"
 	"os"
 	"os/signal"
+	"quic-chat/internal/logging"
 	"syscall"
 
 	"quic-chat/internal/chat"
 )
 
 func main() {
+	_ = logging.Init()
 	if err := run(); err != nil {
-		fmt.Printf("unhandled application error: %s\n", err.Error())
+		log.Warn().Err(err).Msg("run error")
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	server, err := chat.NewServer()
+	serverName := flag.String("n", "", "server name")
+	quicPort := flag.Int("q", 4242, "quic port")
+	httpPort := flag.Int("h", 9080, "http port")
+	bufferSize := flag.Int("s", 16, "message buffer size")
+	crtPath := flag.String("c", "server.crt", "certificate path")
+	keyPath := flag.String("k", "server.key", "private key path")
+	flag.Parse()
+
+	if *serverName == "" {
+		return errors.New("server name is empty")
+	}
+
+	server, err := chat.NewServer(*serverName, *quicPort, *httpPort, *bufferSize, *crtPath, *keyPath)
 	if err != nil {
 		return err
 	}
@@ -29,16 +44,16 @@ func run() error {
 	defer cancel()
 
 	go server.Accept(ctx)
-	go server.Broadcast(ctx)
+	go server.Deliver(ctx)
 	go server.Serve()
 
-	log.Println("server started")
+	log.Info().Str("server_name", *serverName).Int("quic_port", *quicPort).Int("http_port", *httpPort).Msg("server started")
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	<-sigs
 
-	log.Println("shutting down server")
+	log.Info().Msg("server shutting down gracefully")
 
 	return nil
 }
