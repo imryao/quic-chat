@@ -27,15 +27,15 @@ func run() error {
 	quicPort := flag.Int("q", 4242, "quic port")
 	httpPort := flag.Int("h", 9080, "http port")
 	bufferSize := flag.Int("b", 16, "message buffer size")
-	crtPath := flag.String("c", "server.crt", "certificate path")
-	keyPath := flag.String("k", "server.key", "private key path")
+	certFile := flag.String("c", "server.crt", "certificate file")
+	keyFile := flag.String("k", "server.key", "private key file")
 	flag.Parse()
 
 	if *serverName == "" {
 		return errors.New("server name is empty")
 	}
 
-	server, err := chat.NewServer(*serverName, *quicPort, *httpPort, *bufferSize, *crtPath, *keyPath)
+	server, err := chat.NewServer(*serverName, *quicPort, *httpPort, *bufferSize, *certFile, *keyFile)
 	if err != nil {
 		return err
 	}

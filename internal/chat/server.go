@@ -190,36 +190,28 @@ func (s *Server) readMessage(stream quic.Stream, addr string) {
 		log.Warn().Str("conn_ip", addr).Err(err).Msg("message.Read error")
 		return
 	}
+	message.From = fmt.Sprintf("%s@%s", message.fromClient, s.serverName)
+	message.fromServer = s.serverName
 
 	// todo: optimize client registration mark
 	if message.Kind == "ClientRegistration" {
-		// read lock every time
-		s.addrsMu.RLock()
-		_, ok := s.addrs[message.fromClient]
-		s.addrsMu.RUnlock()
-		if !ok {
-			// write lock only once
-			s.addrsMu.Lock()
-			// double-check to avoid race condition
-			if _, ok = s.addrs[message.fromClient]; !ok {
-				s.addrs[message.fromClient] = addr
-			}
-			s.addrsMu.Unlock()
+		s.addrsMu.Lock()
+		oldAddr, ok := s.addrs[message.fromClient]
+		s.addrs[message.fromClient] = addr
+		s.addrsMu.Unlock()
+
+		if ok {
+			s.connsMu.Lock()
+			delete(s.conns, oldAddr)
+			s.connsMu.Unlock()
 		}
 
-		// read lock every time
-		s.namesMu.RLock()
-		_, ok = s.names[addr]
-		s.namesMu.RUnlock()
-		if !ok {
-			// write lock only once
-			s.namesMu.Lock()
-			// double-check to avoid race condition
-			if _, ok = s.names[addr]; !ok {
-				s.names[addr] = message.fromClient
-			}
-			s.namesMu.Unlock()
+		s.namesMu.Lock()
+		if ok {
+			delete(s.names, oldAddr)
 		}
+		s.names[addr] = message.fromClient
+		s.namesMu.Unlock()
 
 		log.Info().Str("conn_ip", addr).Str("client_name", message.From).Msg("client registered")
 	} else {
