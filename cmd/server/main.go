@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,9 +13,15 @@ import (
 	"quic-chat/internal/logging"
 
 	"github.com/rs/zerolog/log"
+
+	_ "net/http/pprof"
 )
 
 func main() {
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
+
 	_ = logging.Init()
 	if err := run(); err != nil {
 		log.Warn().Err(err).Msg("run error")

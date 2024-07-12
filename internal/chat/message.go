@@ -1,7 +1,8 @@
 package chat
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/gob"
 	"errors"
 	"github.com/rs/zerolog/log"
 	"io"
@@ -26,7 +27,7 @@ type Message struct {
 var re = regexp.MustCompile(`.+@.+`)
 
 func (m *Message) Read(r io.Reader) error {
-	err := json.NewDecoder(r).Decode(m)
+	err := gob.NewDecoder(r).Decode(m)
 	if err != nil {
 		log.Warn().Err(err).Msg("json.Unmarshal error")
 		return err
@@ -48,9 +49,15 @@ func (m *Message) Read(r io.Reader) error {
 }
 
 func (m *Message) Write(w io.Writer) error {
-	return json.NewEncoder(w).Encode(m)
+	return gob.NewEncoder(w).Encode(m)
 }
 
 func (m *Message) WriteBytes() ([]byte, error) {
-	return json.Marshal(m)
+	var buffer bytes.Buffer
+	encoder := gob.NewEncoder(&buffer)
+	err := encoder.Encode(m)
+	if err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }

@@ -7,7 +7,7 @@ import (
 )
 
 func Init() error {
-	//f, err := os.OpenFile("/var/log/oai-proxy/app.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	//f, err := os.OpenFile("/var/log/quic-chat/app.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	//if err != nil {
 	//	fmt.Println(err)
 	//	return err

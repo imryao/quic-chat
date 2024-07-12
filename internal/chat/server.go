@@ -43,7 +43,9 @@ func NewServer(serverName string, quicPort, httpPort, bufferSize int, certFile, 
 
 	listener, err := quic.ListenAddr(fmt.Sprintf(":%d", quicPort), tlsConf, &quic.Config{
 		// todo: avoid magic numbers
-		KeepAlivePeriod: 10 * time.Second,
+		KeepAlivePeriod:       10 * time.Second,
+		MaxIncomingStreams:    2147483647,
+		MaxIncomingUniStreams: 2147483647,
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("quic.ListenAddr error")
@@ -66,6 +68,9 @@ func NewServer(serverName string, quicPort, httpPort, bufferSize int, certFile, 
 
 		messages <- msg
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/v1/messages", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, "# messages = %d\n", len(messages))
 	})
 
 	return &Server{
@@ -183,7 +188,10 @@ func (s *Server) removeClient(addr string) {
 }
 
 func (s *Server) readMessage(stream quic.Stream, addr string) {
-	defer func() { _ = stream.Close() }()
+	defer func() {
+		_ = stream.Close()
+		log.Info().Str("conn_ip", addr).Msg("readMessage stream closed")
+	}()
 
 	var message Message
 	if err := message.Read(stream); err != nil {
@@ -220,12 +228,18 @@ func (s *Server) readMessage(stream quic.Stream, addr string) {
 }
 
 func (s *Server) sendMessage(conn quic.Connection, message *Message) {
+	if message.fromServer == "SERVER" {
+		message.From = fmt.Sprintf("%s@%s", message.fromClient, s.serverName)
+	}
 	stream, err := conn.OpenStream()
 	if err != nil {
 		log.Warn().Str("conn_ip", conn.RemoteAddr().String()).Err(err).Msg("conn.OpenStream error")
 		return
 	}
-	defer func() { _ = stream.Close() }()
+	defer func() {
+		_ = stream.Close()
+		log.Info().Str("conn_ip", conn.RemoteAddr().String()).Msg("sendMessage stream closed")
+	}()
 
 	if err = message.Write(stream); err != nil {
 		log.Warn().Str("conn_ip", conn.RemoteAddr().String()).Err(err).Msg("message.Write error")
