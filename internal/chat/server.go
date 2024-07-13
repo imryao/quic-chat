@@ -5,8 +5,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	cmap "github.com/orcaman/concurrent-map/v2"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -22,15 +22,11 @@ type Server struct {
 	httpClient   *http.Client
 
 	// conns maps client addr to connection
-	conns map[string]quic.Connection
+	conns cmap.ConcurrentMap[string, quic.Connection]
 	// addrs maps client name to client addr
-	addrs map[string]string
+	addrs cmap.ConcurrentMap[string, string]
 	// names maps client addr to client name
-	names map[string]string
-
-	connsMu sync.RWMutex
-	addrsMu sync.RWMutex
-	namesMu sync.RWMutex
+	names cmap.ConcurrentMap[string, string]
 
 	messages chan Message
 }
@@ -83,9 +79,9 @@ func NewServer(serverName string, quicPort, httpPort, bufferSize int, certFile, 
 		},
 		httpClient: &http.Client{},
 
-		conns: map[string]quic.Connection{},
-		addrs: map[string]string{},
-		names: map[string]string{},
+		conns: cmap.New[quic.Connection](),
+		addrs: cmap.New[string](),
+		names: cmap.New[string](),
 
 		messages: messages,
 	}, nil
@@ -104,14 +100,10 @@ func (s *Server) Deliver(ctx context.Context) {
 			// check if message belongs to me
 			if message.toServer == s.serverName {
 				// if so, deliver to the specific client
-				s.addrsMu.RLock()
-				addr, ok := s.addrs[message.toClient]
-				s.addrsMu.RUnlock()
+				addr, ok := s.addrs.Get(message.toClient)
 
 				if ok {
-					s.connsMu.RLock()
-					conn, ok := s.conns[addr]
-					s.connsMu.RUnlock()
+					conn, ok := s.conns.Get(addr)
 
 					if ok {
 						go s.sendMessage(conn, &message)
@@ -146,9 +138,7 @@ func (s *Server) Accept(ctx context.Context) {
 func (s *Server) handleConn(ctx context.Context, conn quic.Connection) {
 	defer func() { _ = conn.CloseWithError(serverError, "failed to handle connection") }()
 
-	s.connsMu.Lock()
-	s.conns[conn.RemoteAddr().String()] = conn
-	s.connsMu.Unlock()
+	s.conns.Set(conn.RemoteAddr().String(), conn)
 
 	log.Info().Str("conn_ip", conn.RemoteAddr().String()).Msg("client connected")
 
@@ -165,24 +155,14 @@ func (s *Server) handleConn(ctx context.Context, conn quic.Connection) {
 }
 
 func (s *Server) removeClient(addr string) {
-	s.connsMu.Lock()
-	if _, ok := s.conns[addr]; ok {
-		delete(s.conns, addr)
-	}
-	s.connsMu.Unlock()
+	s.conns.Remove(addr)
 
-	s.namesMu.Lock()
-	name, ok := s.names[addr]
+	name, ok := s.names.Get(addr)
 	if ok {
-		delete(s.names, addr)
+		s.names.Remove(addr)
 	}
-	s.namesMu.Unlock()
 
-	s.addrsMu.Lock()
-	if _, ok = s.addrs[name]; ok {
-		delete(s.addrs, name)
-	}
-	s.addrsMu.Unlock()
+	s.addrs.Remove(name)
 
 	log.Info().Str("conn_ip", addr).Msg("client removed")
 }
@@ -190,7 +170,6 @@ func (s *Server) removeClient(addr string) {
 func (s *Server) readMessage(stream quic.Stream, addr string) {
 	defer func() {
 		_ = stream.Close()
-		log.Info().Str("conn_ip", addr).Msg("readMessage stream closed")
 	}()
 
 	var message Message
@@ -203,23 +182,15 @@ func (s *Server) readMessage(stream quic.Stream, addr string) {
 
 	// todo: optimize client registration mark
 	if message.Kind == "ClientRegistration" {
-		s.addrsMu.Lock()
-		oldAddr, ok := s.addrs[message.fromClient]
-		s.addrs[message.fromClient] = addr
-		s.addrsMu.Unlock()
+		oldAddr, ok := s.addrs.Get(message.fromClient)
+		s.addrs.Set(message.fromClient, addr)
 
 		if ok {
-			s.connsMu.Lock()
-			delete(s.conns, oldAddr)
-			s.connsMu.Unlock()
+			s.conns.Remove(oldAddr)
 		}
 
-		s.namesMu.Lock()
-		if ok {
-			delete(s.names, oldAddr)
-		}
-		s.names[addr] = message.fromClient
-		s.namesMu.Unlock()
+		s.names.Remove(oldAddr)
+		s.names.Set(addr, message.fromClient)
 
 		log.Info().Str("conn_ip", addr).Str("client_name", message.From).Msg("client registered")
 	} else {
@@ -238,7 +209,6 @@ func (s *Server) sendMessage(conn quic.Connection, message *Message) {
 	}
 	defer func() {
 		_ = stream.Close()
-		log.Info().Str("conn_ip", conn.RemoteAddr().String()).Msg("sendMessage stream closed")
 	}()
 
 	if err = message.Write(stream); err != nil {

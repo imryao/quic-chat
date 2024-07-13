@@ -3,6 +3,7 @@ module quic-chat
 go 1.22
 
 require (
+	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/quic-go/quic-go v0.45.1
 	github.com/rs/zerolog v1.33.0
 )
